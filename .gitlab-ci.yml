@@ -1,0 +1,141 @@
+# .gitlab-ci.yml for Mini Core Banking System 
+
+stages:
+  - build
+  - test
+  - docker-build
+  - deploy
+
+variables:
+  # Using overlay2 for faster docker builds
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  # Maven local repo configuration for dependency caching
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  # Target remote server for deployment steps
+  SERVER_USER: "deploy"
+  SERVER_IP: "192.168.1.100" # NOTE: Change to your prod IP. Use GitLab Variables.
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .m2/repository
+    - frontend/node_modules/
+
+# ==================================================
+# 1. BUILD STAGE
+# ==================================================
+
+build:backend:
+  stage: build
+  image: eclipse-temurin:17-jdk-jammy
+  script:
+    - cd backend
+    - ./mvnw clean package -DskipTests
+  artifacts:
+    paths:
+      - backend/target/*.jar
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:frontend:
+  stage: build
+  image: node:20-alpine
+  script:
+    - cd frontend
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ==================================================
+# 2. TEST STAGE
+# ==================================================
+
+test:backend:
+  stage: test
+  image: eclipse-temurin:17-jdk-jammy
+  needs:
+    - build:backend
+  script:
+    - cd backend
+    - ./mvnw test
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - backend/target/surefire-reports/TEST-*.xml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ==================================================
+# 3. DOCKER BUILD STAGE
+# ==================================================
+
+docker:build-publish:
+  stage: docker-build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  needs:
+    - build:backend
+    - build:frontend
+    - test:backend
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+  script:
+    # Build & Publish Backend Image
+    - cd backend
+    - docker build -t $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE/backend:latest .
+    - docker push $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/backend:latest
+    - cd ..
+    # Build & Publish Frontend Image
+    - cd frontend
+    - docker build -t $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE/frontend:latest .
+    - docker push $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/frontend:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ==================================================
+# 4. DEPLOY STAGE
+# ==================================================
+
+deploy:prod:
+  stage: deploy
+  image: alpine:latest
+  needs:
+    - docker:build-publish
+  before_script:
+    - 'command -v ssh-agent >/dev/null || ( apk add --update openssh )'
+    - eval $(ssh-agent -s)
+    # Inject SSH private key from GitLab CI/CD Variables
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $SERVER_IP >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    - echo "Deploying to production server..."
+    # Copy docker-compose file
+    - scp docker-compose.yml $SERVER_USER@$SERVER_IP:~/banking-app/
+    # Trigger restart on the server using the newly built images 
+    - ssh $SERVER_USER@$SERVER_IP "
+        cd ~/banking-app &&
+        echo \"$CI_REGISTRY_PASSWORD\" | docker login $CI_REGISTRY -u \"$CI_REGISTRY_USER\" --password-stdin &&
+        docker-compose pull &&
+        docker-compose up -d --remove-orphans"
+  environment:
+    name: production
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual # Requires manual trigger inside GitLab UI for deployment safety
