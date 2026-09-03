@@ -1,11 +1,13 @@
 package com.bank.core.controller;
 
 import com.bank.core.dto.TransactionDto;
+import com.bank.core.exception.ResourceNotFoundException;
 import com.bank.core.model.Account;
 import com.bank.core.model.Transaction;
 import com.bank.core.repository.AccountRepository;
 import com.bank.core.repository.TransactionRepository;
 import com.bank.core.service.TransactionService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,19 +26,19 @@ public class TransactionController {
     private final AccountRepository accountRepository;
 
     @PostMapping("/deposit")
-    public ResponseEntity<?> deposit(@RequestBody TransactionDto.Request request) {
+    public ResponseEntity<?> deposit(@Valid @RequestBody TransactionDto.Request request) {
         transactionService.deposit(request.getSourceAccountNumber(), request.getAmount());
         return ResponseEntity.ok("Deposit successful");
     }
 
     @PostMapping("/withdraw")
-    public ResponseEntity<?> withdraw(@RequestBody TransactionDto.Request request) {
+    public ResponseEntity<?> withdraw(@Valid @RequestBody TransactionDto.Request request) {
         transactionService.withdraw(request.getSourceAccountNumber(), request.getAmount());
         return ResponseEntity.ok("Withdrawal successful");
     }
 
     @PostMapping("/transfer")
-    public ResponseEntity<?> transfer(@RequestBody TransactionDto.Request request) {
+    public ResponseEntity<?> transfer(@Valid @RequestBody TransactionDto.Request request) {
         transactionService.transfer(request.getSourceAccountNumber(), request.getTargetAccountNumber(),
                 request.getAmount());
         return ResponseEntity.ok("Transfer successful");
@@ -50,7 +52,7 @@ public class TransactionController {
             Pageable pageable) {
 
         Account account = accountRepository.findByAccountNumber(accountNumber)
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
 
         Page<Transaction> transactions;
         if (start != null && end != null) {

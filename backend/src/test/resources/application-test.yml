@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  jwt:
+    secret: testSecretKey123456789012345678901234567890
+    expiration-ms: 86400000
+  security:
+    auth-whitelist:
+      - /api/v1/auth/**
+      - /v3/api-docs/**
+      - /swagger-ui/**
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+    com.bank.core: DEBUG

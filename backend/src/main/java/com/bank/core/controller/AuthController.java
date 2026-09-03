@@ -1,10 +1,13 @@
 package com.bank.core.controller;
 
 import com.bank.core.dto.AuthDto;
+import com.bank.core.exception.DuplicateResourceException;
 import com.bank.core.model.User;
 import com.bank.core.repository.UserRepository;
 import com.bank.core.security.JwtTokenProvider;
 import com.bank.core.service.AccountService;
+import com.bank.core.service.TokenBlacklistService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -23,9 +26,10 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final AccountService accountService;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @PostMapping("/login")
-    public ResponseEntity<?> authenticateUser(@RequestBody AuthDto.LoginRequest loginRequest) {
+    public ResponseEntity<?> authenticateUser(@Valid @RequestBody AuthDto.LoginRequest loginRequest) {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
 
@@ -36,9 +40,9 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> registerUser(@RequestBody AuthDto.RegisterRequest registerRequest) {
+    public ResponseEntity<?> registerUser(@Valid @RequestBody AuthDto.RegisterRequest registerRequest) {
         if (userRepository.existsByUsername(registerRequest.getUsername())) {
-            return ResponseEntity.badRequest().body("Username is already taken!");
+            throw new DuplicateResourceException("Username is already taken!");
         }
 
         User user = User.builder()
@@ -50,9 +54,17 @@ public class AuthController {
 
         User savedUser = userRepository.save(user);
 
-        // Auto-create an account for new customer
         accountService.createAccount(savedUser);
 
         return ResponseEntity.ok("User registered successfully!");
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(@RequestHeader("Authorization") String authHeader) {
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            tokenBlacklistService.blacklist(token);
+        }
+        return ResponseEntity.ok("Logged out successfully");
     }
 }

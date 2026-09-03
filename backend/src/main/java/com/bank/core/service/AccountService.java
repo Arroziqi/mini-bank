@@ -1,5 +1,6 @@
 package com.bank.core.service;
 
+import com.bank.core.exception.ResourceNotFoundException;
 import com.bank.core.model.Account;
 import com.bank.core.model.User;
 import com.bank.core.repository.AccountRepository;
@@ -32,6 +33,6 @@ public class AccountService {
 
     public Account getAccount(String accountNumber) {
         return accountRepository.findByAccountNumber(accountNumber)
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
     }
 }
