@@ -1,8 +1,8 @@
 # MVP Finalization Plan - Mini Core Banking System
 
 > **Purpose:** Task list & patokan untuk AI agent mengerjakan finalisasi MVP.
-> **Status:** Dalam pengerjaan
-> **Total Tasks:** 28 tasks across 5 phases
+> **Status:** SELESAI
+> **Total Tasks:** 28 tasks across 5 phases - ALL DONE
 
 ---
 
@@ -722,34 +722,34 @@ Phase 5 (CI/CD & Polish) ──────────────────�
 ## Checklist
 
 ### Phase 1: Bug Fixes & Quick Wins
-- [ ] 1.1 Fix Login.vue loading bug
-- [ ] 1.2 Delete HelloWorld.vue
+- [x] 1.1 Fix Login.vue loading bug
+- [x] 1.2 Delete HelloWorld.vue
 
 ### Phase 2: Backend Hardening
-- [ ] 2.1 Create custom exception classes
-- [ ] 2.2 Update GlobalExceptionHandler
-- [ ] 2.3 Update services to use custom exceptions
-- [ ] 2.4 Add Optimistic Lock retry mechanism
-- [ ] 2.5 Add Jakarta Validation to DTOs
-- [ ] 2.6 Implement Redis Token Blacklist
+- [x] 2.1 Create custom exception classes
+- [x] 2.2 Update GlobalExceptionHandler
+- [x] 2.3 Update services to use custom exceptions
+- [x] 2.4 Add Optimistic Lock retry mechanism
+- [x] 2.5 Add Jakarta Validation to DTOs
+- [x] 2.6 Implement Redis Token Blacklist
 
 ### Phase 3: Backend Testing
-- [ ] 3.1 Setup test infrastructure (H2, test config)
-- [ ] 3.2 Write TransactionService unit tests
-- [ ] 3.3 Write JwtTokenProvider unit tests
-- [ ] 3.4 Write API integration tests (Auth, Transaction, Account, Admin)
-- [ ] 3.5 Write Security integration tests
+- [x] 3.1 Setup test infrastructure (H2, test config)
+- [x] 3.2 Write TransactionService unit tests
+- [x] 3.3 Write JwtTokenProvider unit tests
+- [x] 3.4 Write API integration tests (Auth, Transaction, Account, Admin)
+- [x] 3.5 Write Security integration tests
 
 ### Phase 4: Frontend Enhancements
-- [ ] 4.1 Setup frontend testing (Vitest + Vue Test Utils)
-- [ ] 4.2 Write store unit tests (auth, account)
-- [ ] 4.3 Write component unit tests (Login, Register, Transfer)
-- [ ] 4.4 (Optional) Write E2E tests
+- [x] 4.1 Setup frontend testing (Vitest + Vue Test Utils)
+- [x] 4.2 Write store unit tests (auth, account)
+- [x] 4.3 Write component unit tests (Login, Register, Transfer)
+- [x] 4.4 (Optional) Write E2E tests
 
 ### Phase 5: CI/CD & Deployment Polish
-- [ ] 5.1 Add frontend test stage to GitLab CI
-- [ ] 5.2 Add Docker healthchecks
-- [ ] 5.3 Update README.md
+- [x] 5.1 Add frontend test stage to GitLab CI
+- [x] 5.2 Add Docker healthchecks
+- [x] 5.3 Update README.md
 
 ---
 

@@ -43,7 +43,11 @@ Built with **Java Spring Boot 3** and **Vue.js 3**, it utilizes modern transacti
 ### Transaction System (Concurrent Safety Layer)
 - Supports: **Deposits**, **Withdrawals**, and internal **Transfers**.
 - Protected with **`@Transactional`** boundaries.
-- **Optimistic Locking (`@Version`)** with retry mechanism to prevent race conditions.
+- **Double-Entry Ledger**: Every transfer creates matching DEBIT/CREDIT entries with balance verification.
+- **Pessimistic Locking**: `SELECT FOR UPDATE` with consistent lock ordering to prevent deadlocks.
+- **Idempotency**: Idempotency key via header + unique DB constraint prevents double-spending on retries.
+- **State Machine**: Transfer status tracking (`INITIATED` -> `COMPLETED` / `FAILED`).
+- **Transaction History**: Paginated with date range filtering.
 
 ### Input Validation
 - **Jakarta Validation** on all request DTOs.
@@ -115,17 +119,29 @@ npm run dev
 
 ## Testing
 
-### Backend Tests
+### Backend Tests (JUnit 5 + Mockito + H2)
 ```bash
 cd backend
 ./mvnw test
 ```
+- **Unit Tests**: TransactionService, JwtTokenProvider (Mockito)
+- **Integration Tests**: Auth, Transaction, Admin controllers (MockMvc + H2)
+- **Security Tests**: Authorization rules, JWT filtering
 
-### Frontend Tests
+### Frontend Tests (Vitest + Vue Test Utils)
 ```bash
 cd frontend
 npm run test:run
 ```
+- **Store Tests**: Auth store, Account store
+- **Component Tests**: Login, Register views
+
+### E2E Tests
+```bash
+cd e2e-tests
+node run-tests.js
+```
+- 14 test scenarios with 38 assertions covering auth, transactions, and admin flows.
 
 ---
 
@@ -153,9 +169,12 @@ APP_SECURITY_AUTH_WHITELIST="/api/v1/auth/**,/public/**"
 - **JWT Authorization**: Stateless and horizontally-scalable security.
 - **Token Blacklist**: Redis-backed logout with automatic expiration.
 - **Hashing/Salting**: BCryptPasswordEncoder for all passwords.
-- **Race Condition Prevention**: `@Version` with retry mechanism for concurrent transactions.
+- **Race Condition Prevention**: Pessimistic locking (`SELECT FOR UPDATE`) with consistent lock ordering.
+- **Idempotency**: Prevents double-spending on retry requests.
+- **Double-Entry Ledger**: Every transfer creates verifiable DEBIT/CREDIT pairs.
 - **Input Validation**: Jakarta Validation on all request DTOs.
 - **Custom Exceptions**: Proper HTTP status codes (404, 400, 409).
+- **Structured Logging**: Separated log files (app.log, security.log, audit.log) with trace IDs.
 
 ---
 
@@ -170,7 +189,9 @@ APP_SECURITY_AUTH_WHITELIST="/api/v1/auth/**,/public/**"
 
 ## Future Improvements
 
-- Add **Kibana / ELK Stack** for request tracing.
+- Add **Kibana / ELK Stack** for centralized log aggregation.
 - Implement **RabbitMQ / Kafka** for async AuditLog processing.
-- Add **2FA / TOTP** for enhanced security.
-- Introduce **Chart.js** for transaction history visualization.
+- Add **2FA / TOTP** for enhanced authentication security.
+- Introduce **Chart.js** for transaction history visualization on the dashboard.
+- Add **Rate Limiting** to protect API endpoints from abuse.
+- Implement **Account Statements** (PDF export).
