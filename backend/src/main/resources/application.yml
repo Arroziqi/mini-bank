@@ -9,7 +9,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -28,5 +28,10 @@ app:
 
 logging:
   level:
-    org.springframework.security: DEBUG
+    root: INFO
     com.bank.core: DEBUG
+    com.bank.core.security: DEBUG
+    com.bank.core.service.TransactionService: DEBUG
+    com.bank.core.service.AuditService: DEBUG
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN

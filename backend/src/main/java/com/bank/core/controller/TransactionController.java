@@ -9,6 +9,8 @@ import com.bank.core.repository.TransactionRepository;
 import com.bank.core.service.TransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -21,27 +23,49 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class TransactionController {
 
+    private static final Logger log = LoggerFactory.getLogger(TransactionController.class);
+
     private final TransactionService transactionService;
     private final TransactionRepository transactionRepository;
     private final AccountRepository accountRepository;
 
     @PostMapping("/deposit")
     public ResponseEntity<?> deposit(@Valid @RequestBody TransactionDto.Request request) {
-        transactionService.deposit(request.getSourceAccountNumber(), request.getAmount());
-        return ResponseEntity.ok("Deposit successful");
+        log.info("Deposit request: account={}, amount={}", request.getSourceAccountNumber(), request.getAmount());
+        Transaction tx = transactionService.deposit(request.getSourceAccountNumber(), request.getAmount());
+        return ResponseEntity.ok(buildResponse(tx));
     }
 
     @PostMapping("/withdraw")
     public ResponseEntity<?> withdraw(@Valid @RequestBody TransactionDto.Request request) {
-        transactionService.withdraw(request.getSourceAccountNumber(), request.getAmount());
-        return ResponseEntity.ok("Withdrawal successful");
+        log.info("Withdrawal request: account={}, amount={}", request.getSourceAccountNumber(), request.getAmount());
+        Transaction tx = transactionService.withdraw(request.getSourceAccountNumber(), request.getAmount());
+        return ResponseEntity.ok(buildResponse(tx));
     }
 
     @PostMapping("/transfer")
-    public ResponseEntity<?> transfer(@Valid @RequestBody TransactionDto.Request request) {
-        transactionService.transfer(request.getSourceAccountNumber(), request.getTargetAccountNumber(),
-                request.getAmount());
-        return ResponseEntity.ok("Transfer successful");
+    public ResponseEntity<?> transfer(
+            @Valid @RequestBody TransactionDto.Request request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        log.info("Transfer request: source={}, target={}, amount={}, idempotencyKey={}",
+                request.getSourceAccountNumber(), request.getTargetAccountNumber(),
+                request.getAmount(), idempotencyKey);
+
+        Transaction tx = transactionService.transfer(
+                request.getSourceAccountNumber(),
+                request.getTargetAccountNumber(),
+                request.getAmount(),
+                idempotencyKey,
+                request.getDescription());
+
+        return ResponseEntity.ok(buildResponse(tx));
+    }
+
+    @GetMapping("/{transferId}")
+    public ResponseEntity<?> getTransfer(@PathVariable Long transferId) {
+        Transaction tx = transactionRepository.findById(transferId)
+                .orElseThrow(() -> new ResourceNotFoundException("Transfer not found"));
+        return ResponseEntity.ok(buildResponse(tx));
     }
 
     @GetMapping("/history/{accountNumber}")
@@ -61,13 +85,20 @@ public class TransactionController {
             transactions = transactionRepository.findAllByAccountId(account.getId(), pageable);
         }
 
-        return ResponseEntity.ok(transactions.map(tx -> TransactionDto.Response.builder()
+        return ResponseEntity.ok(transactions.map(this::buildResponse));
+    }
+
+    private TransactionDto.Response buildResponse(Transaction tx) {
+        return TransactionDto.Response.builder()
                 .id(tx.getId())
+                .idempotencyKey(tx.getIdempotencyKey())
                 .sourceAccountNumber(tx.getSourceAccount() != null ? tx.getSourceAccount().getAccountNumber() : null)
                 .targetAccountNumber(tx.getTargetAccount() != null ? tx.getTargetAccount().getAccountNumber() : null)
                 .amount(tx.getAmount())
                 .type(tx.getType())
+                .status(tx.getStatus())
+                .description(tx.getDescription())
                 .createdAt(tx.getCreatedAt())
-                .build()));
+                .build();
     }
 }

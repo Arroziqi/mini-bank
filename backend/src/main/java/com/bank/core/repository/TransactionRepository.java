@@ -8,15 +8,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
+
+    Optional<Transaction> findByIdempotencyKey(String idempotencyKey);
+
     @Query("SELECT t FROM Transaction t WHERE t.sourceAccount.id = :accountId OR t.targetAccount.id = :accountId")
     Page<Transaction> findAllByAccountId(@Param("accountId") Long accountId, Pageable pageable);
 
     @Query("SELECT t FROM Transaction t WHERE (t.sourceAccount.id = :accountId OR t.targetAccount.id = :accountId) " +
            "AND t.createdAt BETWEEN :startDate AND :endDate")
-    Page<Transaction> findAllByAccountIdAndDateRange(@Param("accountId") Long accountId, 
-                                                   @Param("startDate") LocalDateTime startDate, 
-                                                   @Param("endDate") LocalDateTime endDate, 
+    Page<Transaction> findAllByAccountIdAndDateRange(@Param("accountId") Long accountId,
+                                                   @Param("startDate") LocalDateTime startDate,
+                                                   @Param("endDate") LocalDateTime endDate,
                                                    Pageable pageable);
 }

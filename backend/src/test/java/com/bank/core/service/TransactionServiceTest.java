@@ -33,6 +33,12 @@ class TransactionServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private LedgerService ledgerService;
+
+    @Mock
+    private OutboxService outboxService;
+
     @InjectMocks
     private TransactionService transactionService;
 
@@ -59,7 +65,7 @@ class TransactionServiceTest {
 
     @Test
     void deposit_shouldIncreaseBalance() {
-        when(accountRepository.findByAccountNumber("ACC-123456")).thenReturn(Optional.of(account));
+        when(accountRepository.findByAccountNumberWithLock("ACC-123456")).thenReturn(Optional.of(account));
         when(accountRepository.save(any(Account.class))).thenReturn(account);
         when(transactionRepository.save(any(Transaction.class))).thenReturn(new Transaction());
 
@@ -74,7 +80,7 @@ class TransactionServiceTest {
 
     @Test
     void deposit_shouldThrowWhenAccountNotFound() {
-        when(accountRepository.findByAccountNumber("ACC-NOTEXIST")).thenReturn(Optional.empty());
+        when(accountRepository.findByAccountNumberWithLock("ACC-NOTEXIST")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () ->
                 transactionService.deposit("ACC-NOTEXIST", new BigDecimal("500.00"))
@@ -83,7 +89,7 @@ class TransactionServiceTest {
 
     @Test
     void withdraw_shouldDecreaseBalance() {
-        when(accountRepository.findByAccountNumber("ACC-123456")).thenReturn(Optional.of(account));
+        when(accountRepository.findByAccountNumberWithLock("ACC-123456")).thenReturn(Optional.of(account));
         when(accountRepository.save(any(Account.class))).thenReturn(account);
         when(transactionRepository.save(any(Transaction.class))).thenReturn(new Transaction());
 
@@ -98,7 +104,7 @@ class TransactionServiceTest {
 
     @Test
     void withdraw_shouldThrowWhenInsufficientBalance() {
-        when(accountRepository.findByAccountNumber("ACC-123456")).thenReturn(Optional.of(account));
+        when(accountRepository.findByAccountNumberWithLock("ACC-123456")).thenReturn(Optional.of(account));
 
         assertThrows(InsufficientBalanceException.class, () ->
                 transactionService.withdraw("ACC-123456", new BigDecimal("5000.00"))
@@ -107,7 +113,7 @@ class TransactionServiceTest {
 
     @Test
     void withdraw_shouldThrowWhenAccountNotFound() {
-        when(accountRepository.findByAccountNumber("ACC-NOTEXIST")).thenReturn(Optional.empty());
+        when(accountRepository.findByAccountNumberWithLock("ACC-NOTEXIST")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () ->
                 transactionService.withdraw("ACC-NOTEXIST", new BigDecimal("100.00"))
@@ -125,12 +131,12 @@ class TransactionServiceTest {
                 .version(0)
                 .build();
 
-        when(accountRepository.findByAccountNumber("ACC-123456")).thenReturn(Optional.of(account));
-        when(accountRepository.findByAccountNumber("ACC-789012")).thenReturn(Optional.of(target));
+        when(accountRepository.findByAccountNumberWithLock("ACC-123456")).thenReturn(Optional.of(account));
+        when(accountRepository.findByAccountNumberWithLock("ACC-789012")).thenReturn(Optional.of(target));
         when(accountRepository.save(any(Account.class))).thenReturn(account);
         when(transactionRepository.save(any(Transaction.class))).thenReturn(new Transaction());
 
-        transactionService.transfer("ACC-123456", "ACC-789012", new BigDecimal("200.00"));
+        transactionService.transfer("ACC-123456", "ACC-789012", new BigDecimal("200.00"), null, "Test transfer");
 
         verify(accountRepository, times(2)).save(any(Account.class));
         verify(transactionRepository).save(argThat(tx ->
@@ -141,19 +147,19 @@ class TransactionServiceTest {
 
     @Test
     void transfer_shouldThrowWhenSourceInsufficient() {
-        when(accountRepository.findByAccountNumber("ACC-123456")).thenReturn(Optional.of(account));
+        when(accountRepository.findByAccountNumberWithLock("ACC-123456")).thenReturn(Optional.of(account));
 
         assertThrows(InsufficientBalanceException.class, () ->
-                transactionService.transfer("ACC-123456", "ACC-789012", new BigDecimal("5000.00"))
+                transactionService.transfer("ACC-123456", "ACC-789012", new BigDecimal("5000.00"), null, null)
         );
     }
 
     @Test
     void transfer_shouldThrowWhenSourceNotFound() {
-        when(accountRepository.findByAccountNumber("ACC-NOTEXIST")).thenReturn(Optional.empty());
+        when(accountRepository.findByAccountNumberWithLock("ACC-NOTEXIST")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () ->
-                transactionService.transfer("ACC-NOTEXIST", "ACC-789012", new BigDecimal("100.00"))
+                transactionService.transfer("ACC-NOTEXIST", "ACC-789012", new BigDecimal("100.00"), null, null)
         );
     }
 }

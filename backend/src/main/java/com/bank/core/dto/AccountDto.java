@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 public class AccountDto {
     private Long id;
     private String accountNumber;
+    private String holderName;
     private BigDecimal balance;
     private Account.Status status;
 }

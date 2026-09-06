@@ -1,0 +1,11 @@
+{
+  "name": "mini-bank-e2e-tests",
+  "version": "1.0.0",
+  "description": "E2E test suite for Mini Core Banking System - MVP2 Transfer Features",
+  "type": "module",
+  "scripts": {
+    "test": "node run-tests.js",
+    "test:verbose": "VERBOSE=1 node run-tests.js"
+  },
+  "dependencies": {}
+}

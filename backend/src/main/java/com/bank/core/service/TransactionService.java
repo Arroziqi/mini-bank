@@ -3,132 +3,181 @@ package com.bank.core.service;
 import com.bank.core.exception.InsufficientBalanceException;
 import com.bank.core.exception.ResourceNotFoundException;
 import com.bank.core.model.Account;
+import com.bank.core.model.LedgerEntry;
 import com.bank.core.model.Transaction;
+import com.bank.core.model.TransferStatus;
 import com.bank.core.repository.AccountRepository;
 import com.bank.core.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class TransactionService {
-        private final AccountRepository accountRepository;
-        private final TransactionRepository transactionRepository;
-        private final AuditService auditService;
 
-        private static final int MAX_RETRIES = 3;
-        private static final long RETRY_DELAY_MS = 100;
+    private static final Logger log = LoggerFactory.getLogger(TransactionService.class);
 
-        @Transactional
-        public void deposit(String accountNumber, BigDecimal amount) {
-                for (int i = 0; i < MAX_RETRIES; i++) {
-                        try {
-                                Account account = accountRepository.findByAccountNumber(accountNumber)
-                                                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+    private final AccountRepository accountRepository;
+    private final TransactionRepository transactionRepository;
+    private final AuditService auditService;
+    private final LedgerService ledgerService;
+    private final OutboxService outboxService;
 
-                                account.setBalance(account.getBalance().add(amount));
-                                accountRepository.save(account);
+    @Transactional
+    public Transaction deposit(String accountNumber, BigDecimal amount) {
+        log.info("Deposit initiated: account={}, amount={}", accountNumber, amount);
 
-                                Transaction tx = Transaction.builder()
-                                                .targetAccount(account)
-                                                .amount(amount)
-                                                .type(Transaction.Type.DEPOSIT)
-                                                .build();
-                                transactionRepository.save(tx);
+        Account account = accountRepository.findByAccountNumberWithLock(accountNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
 
-                                auditService.log("DEPOSIT", "Deposited " + amount + " to " + accountNumber,
-                                                account.getUser());
-                                return;
-                        } catch (ObjectOptimisticLockingFailureException ex) {
-                                handleOptimisticLockRetry(i);
-                        }
-                }
+        BigDecimal oldBalance = account.getBalance();
+        account.setBalance(oldBalance.add(amount));
+        accountRepository.save(account);
+
+        String idempotencyKey = UUID.randomUUID().toString();
+        Transaction tx = Transaction.builder()
+                .idempotencyKey(idempotencyKey)
+                .targetAccount(account)
+                .amount(amount)
+                .type(Transaction.Type.DEPOSIT)
+                .status(TransferStatus.COMPLETED)
+                .build();
+        tx = transactionRepository.save(tx);
+
+        ledgerService.createSingleEntry(tx, account, LedgerEntry.EntryType.CREDIT, amount);
+
+        outboxService.publishEvent("TRANSACTION", tx.getId(), "DepositCompleted",
+                String.format("{\"transactionId\":%d,\"accountNumber\":\"%s\",\"amount\":%s}", tx.getId(), accountNumber, amount));
+
+        auditService.log("DEPOSIT", "Deposited " + amount + " to " + accountNumber,
+                account.getUser());
+
+        log.info("Deposit completed: account={}, oldBalance={}, newBalance={}, amount={}",
+                accountNumber, oldBalance, account.getBalance(), amount);
+        return tx;
+    }
+
+    @Transactional
+    public Transaction withdraw(String accountNumber, BigDecimal amount) {
+        log.info("Withdrawal initiated: account={}, amount={}", accountNumber, amount);
+
+        Account account = accountRepository.findByAccountNumberWithLock(accountNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+
+        if (account.getBalance().compareTo(amount) < 0) {
+            log.warn("Insufficient balance: account={}, balance={}, requested={}",
+                    accountNumber, account.getBalance(), amount);
+            throw new InsufficientBalanceException("Insufficient balance");
         }
 
-        @Transactional
-        public void withdraw(String accountNumber, BigDecimal amount) {
-                for (int i = 0; i < MAX_RETRIES; i++) {
-                        try {
-                                Account account = accountRepository.findByAccountNumber(accountNumber)
-                                                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+        BigDecimal oldBalance = account.getBalance();
+        account.setBalance(oldBalance.subtract(amount));
+        accountRepository.save(account);
 
-                                if (account.getBalance().compareTo(amount) < 0) {
-                                        throw new InsufficientBalanceException("Insufficient balance");
-                                }
+        String idempotencyKey = UUID.randomUUID().toString();
+        Transaction tx = Transaction.builder()
+                .idempotencyKey(idempotencyKey)
+                .sourceAccount(account)
+                .amount(amount)
+                .type(Transaction.Type.WITHDRAWAL)
+                .status(TransferStatus.COMPLETED)
+                .build();
+        tx = transactionRepository.save(tx);
 
-                                account.setBalance(account.getBalance().subtract(amount));
-                                accountRepository.save(account);
+        ledgerService.createSingleEntry(tx, account, LedgerEntry.EntryType.DEBIT, amount);
 
-                                Transaction tx = Transaction.builder()
-                                                .sourceAccount(account)
-                                                .amount(amount)
-                                                .type(Transaction.Type.WITHDRAWAL)
-                                                .build();
-                                transactionRepository.save(tx);
+        outboxService.publishEvent("TRANSACTION", tx.getId(), "WithdrawalCompleted",
+                String.format("{\"transactionId\":%d,\"accountNumber\":\"%s\",\"amount\":%s}", tx.getId(), accountNumber, amount));
 
-                                auditService.log("WITHDRAWAL", "Withdrew " + amount + " from " + accountNumber,
-                                                account.getUser());
-                                return;
-                        } catch (ObjectOptimisticLockingFailureException ex) {
-                                handleOptimisticLockRetry(i);
-                        }
-                }
+        auditService.log("WITHDRAWAL", "Withdrew " + amount + " from " + accountNumber,
+                account.getUser());
+
+        log.info("Withdrawal completed: account={}, oldBalance={}, newBalance={}, amount={}",
+                accountNumber, oldBalance, account.getBalance(), amount);
+        return tx;
+    }
+
+    @Transactional
+    public Transaction transfer(String sourceAccountNumber, String targetAccountNumber, BigDecimal amount,
+                                String idempotencyKey, String description) {
+        log.info("Transfer initiated: source={}, target={}, amount={}, idempotencyKey={}",
+                sourceAccountNumber, targetAccountNumber, amount, idempotencyKey);
+
+        // 1. Idempotency check
+        if (idempotencyKey != null) {
+            Transaction existing = transactionRepository.findByIdempotencyKey(idempotencyKey).orElse(null);
+            if (existing != null) {
+                log.info("Idempotent request detected: key={}, existingTxId={}, status={}",
+                        idempotencyKey, existing.getId(), existing.getStatus());
+                return existing;
+            }
+        } else {
+            idempotencyKey = UUID.randomUUID().toString();
         }
 
-        @Transactional
-        public void transfer(String sourceAccountNumber, String targetAccountNumber, BigDecimal amount) {
-                for (int i = 0; i < MAX_RETRIES; i++) {
-                        try {
-                                Account source = accountRepository.findByAccountNumber(sourceAccountNumber)
-                                                .orElseThrow(() -> new ResourceNotFoundException(
-                                                                "Source account not found"));
-                                Account target = accountRepository.findByAccountNumber(targetAccountNumber)
-                                                .orElseThrow(() -> new ResourceNotFoundException(
-                                                                "Target account not found"));
+        // 2. Sort account numbers for consistent lock ordering (deadlock prevention)
+        String firstAccountNumber = sourceAccountNumber.compareTo(targetAccountNumber) < 0
+                ? sourceAccountNumber : targetAccountNumber;
+        String secondAccountNumber = sourceAccountNumber.compareTo(targetAccountNumber) < 0
+                ? targetAccountNumber : sourceAccountNumber;
 
-                                if (source.getBalance().compareTo(amount) < 0) {
-                                        throw new InsufficientBalanceException("Insufficient balance");
-                                }
+        // 3. Lock accounts in sorted order
+        Account first = accountRepository.findByAccountNumberWithLock(firstAccountNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found: " + firstAccountNumber));
+        Account second = accountRepository.findByAccountNumberWithLock(secondAccountNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found: " + secondAccountNumber));
 
-                                source.setBalance(source.getBalance().subtract(amount));
-                                target.setBalance(target.getBalance().add(amount));
+        // 4. Map back to source/target
+        Account source = sourceAccountNumber.equals(firstAccountNumber) ? first : second;
+        Account target = targetAccountNumber.equals(firstAccountNumber) ? first : second;
 
-                                accountRepository.save(source);
-                                accountRepository.save(target);
-
-                                Transaction tx = Transaction.builder()
-                                                .sourceAccount(source)
-                                                .targetAccount(target)
-                                                .amount(amount)
-                                                .type(Transaction.Type.TRANSFER)
-                                                .build();
-                                transactionRepository.save(tx);
-
-                                auditService.log("TRANSFER",
-                                                "Transferred " + amount + " from " + sourceAccountNumber + " to "
-                                                                + targetAccountNumber,
-                                                source.getUser());
-                                return;
-                        } catch (ObjectOptimisticLockingFailureException ex) {
-                                handleOptimisticLockRetry(i);
-                        }
-                }
+        // 5. Validate
+        if (source.getBalance().compareTo(amount) < 0) {
+            log.warn("Insufficient balance: account={}, balance={}, requested={}",
+                    sourceAccountNumber, source.getBalance(), amount);
+            throw new InsufficientBalanceException("Insufficient balance");
         }
 
-        private void handleOptimisticLockRetry(int attempt) {
-                if (attempt == MAX_RETRIES - 1) {
-                        throw new RuntimeException(
-                                        "Operation failed after " + MAX_RETRIES
-                                                        + " retries due to concurrent modification");
-                }
-                try {
-                        Thread.sleep(RETRY_DELAY_MS);
-                } catch (InterruptedException ignored) {
-                        Thread.currentThread().interrupt();
-                }
-        }
+        // 6. Execute transfer
+        BigDecimal sourceOldBalance = source.getBalance();
+        BigDecimal targetOldBalance = target.getBalance();
+
+        source.setBalance(source.getBalance().subtract(amount));
+        target.setBalance(target.getBalance().add(amount));
+
+        accountRepository.save(source);
+        accountRepository.save(target);
+
+        Transaction tx = Transaction.builder()
+                .idempotencyKey(idempotencyKey)
+                .sourceAccount(source)
+                .targetAccount(target)
+                .amount(amount)
+                .type(Transaction.Type.TRANSFER)
+                .status(TransferStatus.COMPLETED)
+                .description(description)
+                .build();
+        tx = transactionRepository.save(tx);
+
+        ledgerService.createLedger(tx, source, target, amount);
+
+        outboxService.publishEvent("TRANSACTION", tx.getId(), "TransferCompleted",
+                String.format("{\"transactionId\":%d,\"source\":\"%s\",\"target\":\"%s\",\"amount\":%s}",
+                        tx.getId(), sourceAccountNumber, targetAccountNumber, amount));
+
+        auditService.log("TRANSFER",
+                "Transferred " + amount + " from " + sourceAccountNumber + " to " + targetAccountNumber,
+                source.getUser());
+
+        log.info("Transfer completed: source={} ({} -> {}), target={} ({} -> {}), amount={}, txId={}",
+                sourceAccountNumber, sourceOldBalance, source.getBalance(),
+                targetAccountNumber, targetOldBalance, target.getBalance(), amount, tx.getId());
+        return tx;
+    }
 }

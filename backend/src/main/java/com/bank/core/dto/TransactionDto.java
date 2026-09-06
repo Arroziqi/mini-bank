@@ -1,6 +1,7 @@
 package com.bank.core.dto;
 
 import com.bank.core.model.Transaction;
+import com.bank.core.model.TransferStatus;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -28,7 +29,7 @@ public class TransactionDto {
         @DecimalMin(value = "0.01", message = "Amount must be greater than 0")
         private BigDecimal amount;
 
-        private Transaction.Type type;
+        private String description;
     }
 
     @Data
@@ -37,10 +38,13 @@ public class TransactionDto {
     @Builder
     public static class Response {
         private Long id;
+        private String idempotencyKey;
         private String sourceAccountNumber;
         private String targetAccountNumber;
         private BigDecimal amount;
         private Transaction.Type type;
+        private TransferStatus status;
+        private String description;
         private LocalDateTime createdAt;
     }
 }

@@ -6,6 +6,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -20,6 +22,8 @@ import java.io.IOException;
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+
     private final JwtTokenProvider tokenProvider;
     private final UserDetailsServiceImpl userDetailsService;
     private final TokenBlacklistService tokenBlacklistService;
@@ -30,23 +34,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String jwt = getJwtFromRequest(request);
 
-            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
+            if (StringUtils.hasText(jwt)) {
+                if (!tokenProvider.validateToken(jwt)) {
+                    log.debug("Invalid JWT token for request: {}", request.getRequestURI());
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 if (tokenBlacklistService.isBlacklisted(jwt)) {
+                    log.debug("Blacklisted JWT token used for request: {}", request.getRequestURI());
                     filterChain.doFilter(request, response);
                     return;
                 }
 
                 String username = tokenProvider.getUsernameFromJWT(jwt);
-
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities());
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                log.debug("Authenticated user '{}' for request: {}", username, request.getRequestURI());
             }
         } catch (Exception ex) {
-            // Log error
+            log.error("JWT authentication failed for request: {} - {}", request.getRequestURI(), ex.getMessage());
         }
 
         filterChain.doFilter(request, response);
